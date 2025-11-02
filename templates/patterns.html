@@ -22,27 +22,25 @@
   <div class="modal fade" id="regexModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
       <div class="modal-content">
-        <form id="regexGenForm">
-          <div class="modal-header">
-            <h5 class="modal-title">Regex-Generator (Beispiele)</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <div class="modal-header">
+          <h5 class="modal-title">Regex-Generator (Beispiele)</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label>Positive Beispiele (je eine Zeile)</label>
+            <textarea id="positives" class="form-control" rows="6"></textarea>
           </div>
-          <div class="modal-body">
-            <div class="mb-3">
-              <label>Positive Beispiele (je eine Zeile)</label>
-              <textarea id="positives" class="form-control" rows="6"></textarea>
-            </div>
-            <div class="mb-3">
-              <label>Negative Beispiele (optional, je eine Zeile)</label>
-              <textarea id="negatives" class="form-control" rows="4"></textarea>
-            </div>
-            <div id="rg-status" class="text-muted small"></div>
+          <div class="mb-3">
+            <label>Negative Beispiele (optional)</label>
+            <textarea id="negatives" class="form-control" rows="4"></textarea>
           </div>
-          <div class="modal-footer">
-            <button type="button" id="generateRegexBtn" class="btn btn-primary">Generiere Regex</button>
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schliessen</button>
-          </div>
-        </form>
+          <div id="rg-status" class="text-muted small"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" id="generateRegexBtn" class="btn btn-primary">Generiere Regex</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schliessen</button>
+        </div>
       </div>
     </div>
   </div>
@@ -76,16 +74,14 @@
       const resp = await fetch('{{ url_for("suggest_regex") }}', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({positives: pos.split(/\\r?\\n/), negatives: neg ? neg.split(/\\r?\\n/) : []})
+        body: JSON.stringify({positives: pos.split(/\r?\n/), negatives: neg ? neg.split(/\r?\n/) : []})
       });
       const data = await resp.json();
       if(resp.ok && data.regex){
-        // fill pattern input if present
         const patternInput = document.querySelector('input[name="pattern"], textarea[name="pattern"]');
         if(patternInput) patternInput.value = data.regex;
         status.textContent = 'Regex generiert.';
-        // close modal after short delay
-        setTimeout(()=>{ var modal = bootstrap.Modal.getInstance(document.getElementById('regexModal')); modal.hide(); }, 800);
+        setTimeout(()=>{ var modal = bootstrap.Modal.getInstance(document.getElementById('regexModal')); if(modal) modal.hide(); }, 700);
       } else {
         status.textContent = 'Fehler: ' + (data.error || 'Keine Regex erhalten');
       }

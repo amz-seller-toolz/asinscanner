@@ -18,3 +18,7 @@ SECRET_KEY = "change_this_to_something_secret_and_random"
 
 # Optional: Cron-run path (nur für Hinweise)
 PYTHON_BIN = "/usr/bin/python3"
+
+# HuggingFace API (optional). Setze hier dein Token oder lasse es leer und setze die ENV-Variable HUGGINGFACE_API_TOKEN
+HUGGINGFACE_API_TOKEN = ""  # z.B. "hf_..." — NICHT in öffentliches Repo commiten!
+HF_MODEL = "google/flan-t5-large"
