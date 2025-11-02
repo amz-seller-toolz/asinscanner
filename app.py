@@ -9,16 +9,36 @@ import subprocess
 import os
 import json
 import requests
+import logging
+import sys
 from flask import request, jsonify
 
+# configure logging early so import errors are visible
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("asinscanner.app")
+
 # try import scanner module; fallback to subprocess execution if import fails
+scanner = None
 try:
-    import scanner
+    import scanner as scanner
 except Exception:
+    logger.exception("Failed to import scanner module; continuing with scanner=None")
     scanner = None
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
+
+# log startup in Flask lifecycle
+@app.before_first_request
+def _log_startup():
+    logger.info("Flask app starting up (before_first_request)")
+
+# global excepthook so uncaught exceptions are logged
+def _handle_uncaught(exc_type, exc_value, exc_tb):
+    logger.exception("Uncaught exception", exc_info=(exc_type, exc_value, exc_tb))
+    # keep default behavior (optional): sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+sys.excepthook = _handle_uncaught
 
 def get_db():
     return mysql.connector.connect(
@@ -290,3 +310,13 @@ def suggest_regex():
         return jsonify({"regex": regex, "flags": flags, "error": None})
     except Exception as e:
         return jsonify({"regex": None, "flags": "", "error": str(e)}), 500
+
+# add a run block so running `python app.py` shows errors instead of exiting silently
+if __name__ == "__main__":
+    try:
+        logger.info("Starting Flask app via python app.py")
+        # debug False in production; change host/port as needed
+        app.run(host="0.0.0.0", port=5000, debug=False)
+    except Exception:
+        logger.exception("Fatal error running app")
+        raise
