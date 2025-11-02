@@ -1,16 +1,41 @@
 {% extends "base.html" %}
 {% block content %}
   <h2>Patterns</h2>
-  <form method="post" class="mb-3">
-    <div class="row g-2">
-      <div class="col-md-3"><input name="name" placeholder="Name" class="form-control" /></div>
-      <div class="col-md-4"><input name="pattern" placeholder="RegExp" class="form-control" /></div>
+
+  <!-- Create pattern form -->
+  <form method="post" action="{{ url_for('patterns') }}" class="mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3">
+        <label class="form-label small">Name</label>
+        <input name="name" placeholder="Name" class="form-control" required />
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small">Pattern</label>
+        <input name="pattern" placeholder="RegExp" class="form-control" required />
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">Flags (int)</label>
+        <input name="flags" placeholder="0" class="form-control" />
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small">Active</label>
+        <select name="active" class="form-select">
+          <option value="1" selected>Yes</option>
+          <option value="0">No</option>
+        </select>
+      </div>
+      <div class="col-md-12 mt-2">
+        <label class="form-label small">Description</label>
+        <input name="description" placeholder="Beschreibung (optional)" class="form-control" />
+      </div>
     </div>
-    <div class="mt-2"></div>
+    <div class="mt-2">
+      <button type="submit" class="btn btn-primary">Pattern hinzufügen</button>
+    </div>
   </form>
 
   <!-- Button to open generator modal -->
-  <button type="button" class="btn btn-secondary mb-2" data-bs-toggle="modal" data-bs-target="#regexModal">
+  <button type="button" class="btn btn-secondary mb-3" data-bs-toggle="modal" data-bs-target="#regexModal">
     Regex generieren (AI)
   </button>
 
@@ -42,23 +67,30 @@
   </div>
 
   <table class="table table-sm">
-    <thead><tr><th>Name</th><th>Pattern</th><th>Flags</th><th>Active</th><th>Actions</th></tr></thead>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Pattern</th>
+        <th>Flags</th>
+        <th>Active</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
     <tbody>
     {% for p in patterns %}
       <tr>
         <td>{{ p.name }}</td>
-        <td>{{ p.pattern }}</td>
+        <td><code>{{ p.pattern }}</code></td>
         <td>{{ p.flags }}</td>
         <td>{{ 'Yes' if p.active else 'No' }}</td>
         <td>
-          <form method="post" action="/patterns/toggle/{{ p.id }}" style="display:inline">
-            <button class="btn btn-sm btn-outline-secondary" type="submit">
-              {{ 'Deactivate' if p.active else 'Activate' }}
-            </button>
-          </form>
-          <form method="post" action="/patterns/delete/{{ p.id }}" style="display:inline" onsubmit="return confirm('Sicher löschen?');">
-            <button class="btn btn-sm btn-outline-danger" type="submit">Löschen</button>
-          </form>
+          <!-- app.py defines pattern_toggle and pattern_delete expecting GET, use links to match -->
+          <a href="{{ url_for('pattern_toggle', pid=p.id) }}" class="btn btn-sm btn-outline-secondary">
+            {{ 'Deactivate' if p.active else 'Activate' }}
+          </a>
+          <a href="{{ url_for('pattern_delete', pid=p.id) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Sicher löschen?');">
+            Löschen
+          </a>
         </td>
       </tr>
     {% else %}
@@ -73,16 +105,19 @@
     const genBtn = document.getElementById('generateRegexBtn');
     if (!genBtn) return;
     genBtn.addEventListener('click', async function(){
-      const pos = document.getElementById('positives').value.trim();
-      if(!pos){ alert('Bitte mindestens ein positives Beispiel angeben.'); return; }
-      const neg = document.getElementById('negatives').value.trim();
+      const posTxt = document.getElementById('positives').value.trim();
+      if(!posTxt){ alert('Bitte mindestens ein positives Beispiel angeben.'); return; }
+      const negTxt = document.getElementById('negatives').value.trim();
       const status = document.getElementById('rg-status');
       status.textContent = 'Generiere...';
       try {
         const resp = await fetch('{{ url_for("suggest_regex") }}', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({positives: pos.split(/\r?\n/), negatives: neg ? neg.split(/\r?\n/) : []})
+          body: JSON.stringify({
+            positives: posTxt.split(/\r?\n/).filter(Boolean),
+            negatives: negTxt ? negTxt.split(/\r?\n/).filter(Boolean) : []
+          })
         });
         const data = await resp.json();
         if(resp.ok && data.regex){
