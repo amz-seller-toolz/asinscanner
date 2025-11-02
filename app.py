@@ -31,9 +31,18 @@ except Exception:
     scanner = None
 
 # log startup in Flask lifecycle
-@app.before_first_request
 def _log_startup():
     logger.info("Flask app starting up (before_first_request)")
+
+# try to register, fallback if attribute is missing (old Flask or import collision)
+try:
+    app.before_first_request(_log_startup)
+except AttributeError:
+    logger.warning("Flask has no before_first_request (old Flask or import issue). Calling _log_startup() once now.")
+    _log_startup()
+except Exception:
+    logger.exception("Unexpected error registering before_first_request; calling _log_startup() now.")
+    _log_startup()
 
 # global excepthook so uncaught exceptions are logged
 def _handle_uncaught(exc_type, exc_value, exc_tb):
