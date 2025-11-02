@@ -50,7 +50,16 @@
         <td>{{ p.pattern }}</td>
         <td>{{ p.flags }}</td>
         <td>{{ 'Yes' if p.active else 'No' }}</td>
-        <td><!-- actions --></td>
+        <td>
+          <form method="post" action="/patterns/toggle/{{ p.id }}" style="display:inline">
+            <button class="btn btn-sm btn-outline-secondary" type="submit">
+              {{ 'Deactivate' if p.active else 'Activate' }}
+            </button>
+          </form>
+          <form method="post" action="/patterns/delete/{{ p.id }}" style="display:inline" onsubmit="return confirm('Sicher löschen?');">
+            <button class="btn btn-sm btn-outline-danger" type="submit">Löschen</button>
+          </form>
+        </td>
       </tr>
     {% else %}
       <tr><td colspan="5">Keine Patterns</td></tr>
