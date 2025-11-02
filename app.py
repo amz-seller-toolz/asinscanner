@@ -7,8 +7,9 @@ import config
 import threading
 import subprocess
 import os
-import sys
-from flask import flash, redirect, url_for, render_template
+import json
+import requests
+from flask import request, jsonify
 
 # try import scanner module; fallback to subprocess execution if import fails
 try:
@@ -191,8 +192,101 @@ def scan_logs():
         app.logger.exception("Fehler beim Laden der Scan-Logs: %s", e)
         rows = []
     return render_template("scan_logs.html", rows=rows)
-# ...existing code...
 
-# --- Run ---
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+HUGGINGFACE_API_TOKEN = os.environ.get("HUGGINGFACE_API_TOKEN")
+USE_LOCAL_MODEL = os.environ.get("USE_LOCAL_MODEL") == "1"
+
+def _build_prompt(positives, negatives, max_len=600):
+    p = "Erzeuge eine Python-kompatible reguläre Ausdruck (ohne führende/abschließende /) der alle positiven Beispiele matched und keine der negativen Beispiele.\n\n"
+    p += "Positive Beispiele:\n"
+    for ex in positives:
+        p += f"- {ex}\n"
+    if negatives:
+        p += "\nNegative Beispiele:\n"
+        for ex in negatives:
+            p += f"- {ex}\n"
+    p += "\nAntwort als JSON mit Feldern: regex und flags (z.B. \"i\" oder \"\" wenn none). Gib nur das JSON zurück.\n"
+    return p[:max_len]
+
+def _call_hf_inference(prompt, model="google/flan-t5-large"):
+    headers = {}
+    if HUGGINGFACE_API_TOKEN:
+        headers["Authorization"] = f"Bearer {HUGGINGFACE_API_TOKEN}"
+    payload = {"inputs": prompt, "options": {"use_cache": False, "wait_for_model": True}}
+    resp = requests.post(f"https://api-inference.huggingface.co/models/{model}", headers=headers, json=payload, timeout=60)
+    resp.raise_for_status()
+    data = resp.json()
+    # HF text models usually return list with 'generated_text' or plain string
+    if isinstance(data, list) and "generated_text" in data[0]:
+        return data[0]["generated_text"]
+    if isinstance(data, dict) and "error" in data:
+        raise RuntimeError(data["error"])
+    if isinstance(data, str):
+        return data
+    # fallback to convert to str
+    return json.dumps(data)
+
+@app.route("/suggest_regex", methods=["POST"])
+def suggest_regex():
+    """
+    Endpoint: expects JSON or form with 'positives' (newline-separated) and optional 'negatives'.
+    Returns JSON: { "regex": "...", "flags": "", "error": null }
+    """
+    try:
+        if request.is_json:
+            payload = request.get_json()
+            pos = payload.get("positives", [])
+            neg = payload.get("negatives", [])
+        else:
+            pos = request.form.get("positives", "").strip().splitlines()
+            neg = request.form.get("negatives", "").strip().splitlines()
+
+        positives = [p.strip() for p in pos if p.strip()]
+        negatives = [n.strip() for n in neg if n.strip()]
+        if not positives:
+            return jsonify({"regex": None, "flags": "", "error": "Keine positiven Beispiele angegeben"}), 400
+
+        prompt = _build_prompt(positives, negatives)
+
+        # Prefer HuggingFace Inference API if token present, otherwise try local transformer (optional)
+        model_output = None
+        try:
+            model_output = _call_hf_inference(prompt)
+        except Exception as e:
+            # optional: try local transformers if configured
+            if USE_LOCAL_MODEL:
+                try:
+                    from transformers import pipeline
+                    pipe = pipeline("text2text-generation", model="google/flan-t5-small")
+                    res = pipe(prompt, max_length=256)
+                    model_output = res[0]["generated_text"]
+                except Exception as e2:
+                    return jsonify({"regex": None, "flags": "", "error": f"HF and local model failed: {e}; {e2}"}), 500
+            else:
+                return jsonify({"regex": None, "flags": "", "error": str(e)}), 500
+
+        # try parse model_output as JSON
+        regex = None
+        flags = ""
+        try:
+            # models may return JSON or plain text; try to extract JSON first
+            parsed = json.loads(model_output)
+            regex = parsed.get("regex") or parsed.get("pattern") or parsed.get("regexp")
+            flags = parsed.get("flags", "") or ""
+        except Exception:
+            # fallback: try to find pattern between first pair of backticks or quotes
+            import re as _re
+            m = _re.search(r"`([^`]+)`", model_output)
+            if not m:
+                m = _re.search(r'"([^"]+)"', model_output)
+            if not m:
+                m = _re.search(r"'([^']+)'", model_output)
+            if m:
+                regex = m.group(1)
+            else:
+                # last fallback: return whole text
+                regex = model_output.strip()
+
+        return jsonify({"regex": regex, "flags": flags, "error": None})
+    except Exception as e:
+        return jsonify({"regex": None, "flags": "", "error": str(e)}), 500

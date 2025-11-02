@@ -13,6 +13,40 @@
     </div>
   </form>
 
+  <!-- Button to open generator modal -->
+  <button type="button" class="btn btn-secondary mb-2" data-bs-toggle="modal" data-bs-target="#regexModal">
+    Regex generieren (AI)
+  </button>
+
+  <!-- Modal -->
+  <div class="modal fade" id="regexModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <form id="regexGenForm">
+          <div class="modal-header">
+            <h5 class="modal-title">Regex-Generator (Beispiele)</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label>Positive Beispiele (je eine Zeile)</label>
+              <textarea id="positives" class="form-control" rows="6"></textarea>
+            </div>
+            <div class="mb-3">
+              <label>Negative Beispiele (optional, je eine Zeile)</label>
+              <textarea id="negatives" class="form-control" rows="4"></textarea>
+            </div>
+            <div id="rg-status" class="text-muted small"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" id="generateRegexBtn" class="btn btn-primary">Generiere Regex</button>
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Schliessen</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <table class="table table-sm">
     <thead><tr><th>Name</th><th>Pattern</th><th>Flags</th><th>Active</th><th>Actions</th></tr></thead>
     <tbody>
@@ -30,4 +64,34 @@
     {% endfor %}
     </tbody>
   </table>
+
+  <script>
+  document.getElementById('generateRegexBtn').addEventListener('click', async function(){
+    const pos = document.getElementById('positives').value.trim();
+    if(!pos){ alert('Bitte mindestens ein positives Beispiel angeben.'); return; }
+    const neg = document.getElementById('negatives').value.trim();
+    const status = document.getElementById('rg-status');
+    status.textContent = 'Generiere...';
+    try {
+      const resp = await fetch('{{ url_for("suggest_regex") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({positives: pos.split(/\\r?\\n/), negatives: neg ? neg.split(/\\r?\\n/) : []})
+      });
+      const data = await resp.json();
+      if(resp.ok && data.regex){
+        // fill pattern input if present
+        const patternInput = document.querySelector('input[name="pattern"], textarea[name="pattern"]');
+        if(patternInput) patternInput.value = data.regex;
+        status.textContent = 'Regex generiert.';
+        // close modal after short delay
+        setTimeout(()=>{ var modal = bootstrap.Modal.getInstance(document.getElementById('regexModal')); modal.hide(); }, 800);
+      } else {
+        status.textContent = 'Fehler: ' + (data.error || 'Keine Regex erhalten');
+      }
+    } catch (e) {
+      status.textContent = 'Fehler: ' + e;
+    }
+  });
+  </script>
 {% endblock %}
