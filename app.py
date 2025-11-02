@@ -11,13 +11,12 @@ import json
 import requests
 import logging
 import sys
-from flask import request, jsonify
 
 # configure logging early so import errors are visible
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("asinscanner.app")
 
-# try import scanner module; fallback to subprocess execution if import fails
+# try import scanner module after app exists to avoid circular import issues
 scanner = None
 try:
     import scanner as scanner
