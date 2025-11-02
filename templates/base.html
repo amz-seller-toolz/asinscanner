@@ -13,6 +13,7 @@
       <a href="{{ url_for('asins') }}" class="me-2">ASINs</a>
       <a href="{{ url_for('patterns') }}" class="me-2">Patterns</a>
       <a href="{{ url_for('results') }}" class="me-2">Results</a>
+      <a href="{{ url_for('scan_logs') }}" class="me-2">Scan-Logs</a>
     </nav>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}

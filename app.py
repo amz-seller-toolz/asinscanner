@@ -8,7 +8,7 @@ import threading
 import subprocess
 import os
 import sys
-from flask import flash, redirect, url_for
+from flask import flash, redirect, url_for, render_template
 
 # try import scanner module; fallback to subprocess execution if import fails
 try:
@@ -168,6 +168,30 @@ def run_scanner():
     thread.start()
     flash("Scanner gestartet — läuft im Hintergrund.", "info")
     return redirect(url_for("index"))
+
+@app.route("/scan_logs")
+def scan_logs():
+    """Zeige zuletzt gespeicherte Scan-Logs (scanned_at, asin, matches_count, note)."""
+    try:
+        # nutze die vorhandene DB-Helferfunktion aus scanner.py
+        from scanner import get_db
+        db = get_db()
+        cur = db.cursor()
+        cur.execute("""
+            SELECT sl.id, a.asin, sl.scanned_at, sl.matches_count, sl.note
+            FROM scan_logs sl
+            LEFT JOIN asins a ON sl.asin_id = a.id
+            ORDER BY sl.scanned_at DESC
+            LIMIT 200
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        db.close()
+    except Exception as e:
+        app.logger.exception("Fehler beim Laden der Scan-Logs: %s", e)
+        rows = []
+    return render_template("scan_logs.html", rows=rows)
+# ...existing code...
 
 # --- Run ---
 if __name__ == '__main__':

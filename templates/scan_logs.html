@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+  {% extends "base.html" %}
+  {% block content %}
+    <h2>Scan-Logs (letzte 200)</h2>
+    <table class="table table-sm table-striped">
+      <thead>
+        <tr>
+          <th>Zeit</th>
+          <th>ASIN</th>
+          <th>Treffer</th>
+          <th>Note</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td>{{ row[2] }}</td>
+            <td>{{ row[1] or "-" }}</td>
+            <td>{{ row[3] }}</td>
+            <td>{{ row[4] or "" }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4">Keine Einträge.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endblock %}
+</html>
