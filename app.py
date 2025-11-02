@@ -224,9 +224,10 @@ def scan_logs():
         rows = []
     return render_template("scan_logs.html", rows=rows)
 
-# prefer config value, fallback to environment variable
-HUGGINGFACE_API_TOKEN = getattr(config, "HUGGINGFACE_API_TOKEN", None) or os.environ.get("HUGGINGFACE_API_TOKEN")
-HF_DEFAULT_MODEL = getattr(config, "HF_MODEL", None) or os.environ.get("HF_MODEL", "google/flan-t5-large")
+# prefer token from config, fallback to env var (empty string allowed)
+HUGGINGFACE_API_TOKEN = getattr(config, "HUGGINGFACE_API_TOKEN", "") or os.environ.get("HUGGINGFACE_API_TOKEN", "")
+# use a small/free model by default (anonymous inference allowed for many public models)
+HF_DEFAULT_MODEL = getattr(config, "HF_MODEL", "google/flan-t5-small")
 
 def _build_prompt(positives, negatives, max_len=1200):
     p = "Erzeuge einen Python-kompatiblen regulären Ausdruck (ohne führende/abschließende /) der alle positiven Beispiele matched und keine der negativen Beispiele.\n\n"
@@ -240,28 +241,42 @@ def _build_prompt(positives, negatives, max_len=1200):
     p += "\nAntwortiere nur mit JSON: {\"regex\": \"...\", \"flags\": \"...\"}\n"
     return p[:max_len]
 
-def _call_hf_inference(prompt, model=HF_DEFAULT_MODEL, timeout=60):
+def _call_hf_inference(prompt, model=HF_DEFAULT_MODEL, timeout=30):
     """
-    Ruft die Hugging Face Inference API auf und gibt den generierten Text zurück.
-    Erfordert HUGGINGFACE_API_TOKEN in der Umgebung für autorizierte Nutzung.
+    Versucht zuerst die öffentliche HF Inference-API anonym (kein Token) für kleine/free Modelle.
+    Falls anon-Request mit 403 abgelehnt wird und ein Token konfiguriert ist, wird mit Token erneut probiert.
+    Gibt den generierten Text zurück oder wirft Exception.
     """
     url = f"https://api-inference.huggingface.co/models/{model}"
     headers = {"Content-Type": "application/json"}
-    if HUGGINGFACE_API_TOKEN:
-        headers["Authorization"] = f"Bearer {HUGGINGFACE_API_TOKEN}"
     payload = {"inputs": prompt, "options": {"wait_for_model": True}}
-    resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
-    resp.raise_for_status()
+
+    # 1) Versuch: anonym (keine Authorization). Viele kleine öffentliche Modelle erlauben das.
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as http_err:
+        # falls 403 und Token vorhanden: nochmal mit Token versuchen
+        status = None
+        try:
+            status = resp.status_code
+        except Exception:
+            status = None
+        if status == 403 and HUGGINGFACE_API_TOKEN:
+            headers["Authorization"] = f"Bearer {HUGGINGFACE_API_TOKEN}"
+            resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+            resp.raise_for_status()
+        else:
+            # re-raise original http error
+            raise
+
     data = resp.json()
-    # Häufiger HF-Response: list mit generated_text oder dict/string; handle robust
     if isinstance(data, list) and len(data) and isinstance(data[0], dict) and "generated_text" in data[0]:
         return data[0]["generated_text"]
     if isinstance(data, dict) and "generated_text" in data:
         return data["generated_text"]
-    # Manchmal gibt API einen String direkt zurück
     if isinstance(data, str):
         return data
-    # Fallback: stringify
     return json.dumps(data)
 
 @app.route("/suggest_regex", methods=["POST"])
