@@ -1,10 +1,11 @@
 # config.py
 # Konfigurationsdatei — passe hier DB-Zugangsdaten an
+# für swm-db01
 
 DB_HOST = "localhost"
 DB_PORT = 3306
-DB_USER = "asinscannerer"
-DB_PASS = "your_db_password"
+DB_USER = "asinscanner"
+DB_PASS = "asinscanner"
 DB_NAME = "asinscanner"
 
 # Scraper / Web config
