@@ -10,9 +10,23 @@ import config
 import logging
 import sys
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
+# configure logger and debug mode driven by config.DEBUG (set DEBUG = 1 in config.py to enable)
+DEBUG_MODE = bool(getattr(config, "DEBUG", 0) == 1 or getattr(config, "DEBUG", False))
+
+logger = logging.getLogger("asinscanner.scanner")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.setLevel(logging.DEBUG if DEBUG_MODE else logging.INFO)
+
+# convenience for backward-compatible calls in the file
+# replace existing root-logging calls with logger.*
 
 def get_db():
+    if DEBUG_MODE:
+        logger.debug("Connecting to DB host=%s port=%s db=%s user=%s", config.DB_HOST, config.DB_PORT, config.DB_NAME, config.DB_USER)
     return mysql.connector.connect(
         host=config.DB_HOST,
         port=config.DB_PORT,
@@ -30,7 +44,13 @@ def fetch_product_html(asin):
         "User-Agent": config.USER_AGENT,
         "Accept-Language": "en-US,en;q=0.9,de;q=0.8"
     }
+    if DEBUG_MODE:
+        logger.debug("Fetching URL %s with headers %s", url, {k: headers[k] for k in ("User-Agent",)})
+    start = time.time()
     resp = requests.get(url, headers=headers, timeout=config.HTTP_TIMEOUT)
+    elapsed = time.time() - start
+    if DEBUG_MODE:
+        logger.debug("Fetched %s status=%s elapsed=%.2fs content-length=%s", url, resp.status_code, elapsed, resp.headers.get("Content-Length"))
     resp.raise_for_status()
     return url, resp.text
 
@@ -43,26 +63,38 @@ def extract_text_and_hrefs(html):
     # product description id
     desc = soup.select_one("#productDescription")
     if desc:
-        texts.append(desc.get_text(" ", strip=True))
+        t = desc.get_text(" ", strip=True)
+        texts.append(t)
+        if DEBUG_MODE:
+            logger.debug("Extracted productDescription length=%d", len(t))
         for a in desc.find_all("a", href=True):
             hrefs.append(a['href'])
 
     # bullet points
     bullets = soup.select_one("#feature-bullets")
     if bullets:
-        texts.append(bullets.get_text(" ", strip=True))
+        t = bullets.get_text(" ", strip=True)
+        texts.append(t)
+        if DEBUG_MODE:
+            logger.debug("Extracted feature-bullets length=%d", len(t))
         for a in bullets.find_all("a", href=True):
             hrefs.append(a['href'])
 
     # product details
     detail = soup.select_one("#detailBullets_feature_div")
     if detail:
-        texts.append(detail.get_text(" ", strip=True))
+        t = detail.get_text(" ", strip=True)
+        texts.append(t)
+        if DEBUG_MODE:
+            logger.debug("Extracted detailBullets length=%d", len(t))
         for a in detail.find_all("a", href=True):
             hrefs.append(a['href'])
 
     # full page text fallback
-    texts.append(soup.get_text(" ", strip=True))
+    full_text = soup.get_text(" ", strip=True)
+    texts.append(full_text)
+    if DEBUG_MODE:
+        logger.debug("Full page text length=%d, hrefs_count=%d", len(full_text), len(hrefs))
 
     joined_text = "\n".join(texts)
     return joined_text, hrefs
@@ -80,20 +112,28 @@ def load_active_patterns(cursor):
         try:
             compiled_re = re.compile(pat, re_flags)
             compiled.append((pid, name, compiled_re))
+            if DEBUG_MODE:
+                logger.debug("Compiled pattern id=%s name=%s pattern=%s flags=%s", pid, name, pat, re_flags)
         except re.error as ex:
-            logging.error("Invalid regex id %s (%s): %s", pid, name, ex)
+            logger.error("Invalid regex id %s (%s): %s", pid, name, ex)
+    if DEBUG_MODE:
+        logger.debug("Total compiled patterns: %d", len(compiled))
     return compiled
 
 def run_scan_for_asin(asin):
     """Scan a single ASIN once. Returns number of matches inserted."""
+    logger.info("Start scan for ASIN %s", asin) if not DEBUG_MODE else logger.debug("Start scan for ASIN %s", asin)
     db = get_db()
     cur = db.cursor()
     try:
         url, html = fetch_product_html(asin)
     except Exception as e:
-        logging.exception("Fehler beim Abruf für %s: %s", asin, e)
-        cur.close()
-        db.close()
+        logger.exception("Fehler beim Abruf für %s: %s", asin, e)
+        try:
+            cur.close()
+            db.close()
+        except Exception:
+            pass
         raise
 
     text, hrefs = extract_text_and_hrefs(html)
@@ -106,12 +146,15 @@ def run_scan_for_asin(asin):
         try:
             compiled_patterns.append((pid, name, re.compile(pat, flags or 0)))
         except re.error:
-            logging.error("Ungültiges Pattern id %s name %s", pid, name)
+            logger.error("Ungültiges Pattern id %s name %s", pid, name)
+    if DEBUG_MODE:
+        logger.debug("Loaded %d active patterns", len(compiled_patterns))
 
     matches_inserted = 0
 
     # Search in text
     for pid, name, cre in compiled_patterns:
+        pattern_matches = 0
         for m in cre.finditer(text):
             matched_text = m.group(0) if m.groups() == () else m.group(0)
             matched_group = None
@@ -133,10 +176,17 @@ def run_scan_for_asin(asin):
                 VALUES (%s,%s,%s,%s,%s)
             """, (asin_id, pid, matched_text, matched_group, url))
             matches_inserted += 1
+            pattern_matches += 1
+            if DEBUG_MODE:
+                logger.debug("Inserted match for ASIN %s pattern_id=%s matched_text=%s", asin, pid, matched_text[:200])
+
+        if DEBUG_MODE and pattern_matches == 0:
+            logger.debug("No text matches for ASIN %s pattern_id=%s", asin, pid)
 
     # Also check hrefs (each href string)
     for href in hrefs:
         for pid, name, cre in compiled_patterns:
+            href_matches = 0
             for m in cre.finditer(href):
                 matched_text = m.group(0)
                 matched_group = None
@@ -158,6 +208,11 @@ def run_scan_for_asin(asin):
                     VALUES (%s,%s,%s,%s,%s)
                 """, (asin_id, pid, matched_text, matched_group, url))
                 matches_inserted += 1
+                href_matches += 1
+                if DEBUG_MODE:
+                    logger.debug("Inserted href match for ASIN %s pattern_id=%s matched_text=%s", asin, pid, matched_text[:200])
+            if DEBUG_MODE and href_matches == 0:
+                logger.debug("No href matches for ASIN %s pattern_id=%s on href=%s", asin, pid, href[:200])
 
     # update last_checked timestamp
     cur.execute("UPDATE asins SET last_checked = NOW() WHERE asin = %s", (asin,))
@@ -174,16 +229,16 @@ def run_scan_for_asin(asin):
             (asin_id, matches_inserted, None)
         )
     except Exception as e:
-        logging.exception("Fehler beim Schreiben des Scan-Logs für %s: %s", asin, e)
+        logger.exception("Fehler beim Schreiben des Scan-Logs für %s: %s", asin, e)
 
     cur.close()
     db.close()
 
     # Neuer Log: explizit "keine Treffer" protokollieren
     if matches_inserted == 0:
-        logging.info("ASIN %s: keine Treffer gefunden.", asin)
+        logger.info("ASIN %s: keine Treffer gefunden.", asin)
     else:
-        logging.info("ASIN %s gescannt, %d Treffer.", asin, matches_inserted)
+        logger.info("ASIN %s gescannt, %d Treffer.", asin, matches_inserted)
 
     return matches_inserted
 
@@ -202,15 +257,19 @@ def run_full_scan(limit=None):
     db.close()
 
     total = 0
+    if DEBUG_MODE:
+        logger.debug("Starting full scan for %d asins (limit=%s)", len(rows), limit)
     for r in rows:
         asin = r[0]
         try:
+            if DEBUG_MODE:
+                logger.debug("Scanning ASIN %s", asin)
             matched = run_scan_for_asin(asin)
             total += matched
         except Exception as e:
-            logging.exception("Fehler beim Scannen von %s: %s", asin, e)
+            logger.exception("Fehler beim Scannen von %s: %s", asin, e)
         time.sleep(config.REQUESTS_SLEEP)
-    logging.info("Full scan beendet, insgesamt %d Treffer gefunden.", total)
+    logger.info("Full scan beendet, insgesamt %d Treffer gefunden.", total)
     return total
 
 # If invoked as script, run full scan
