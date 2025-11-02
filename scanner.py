@@ -162,6 +162,20 @@ def run_scan_for_asin(asin):
     # update last_checked timestamp
     cur.execute("UPDATE asins SET last_checked = NOW() WHERE asin = %s", (asin,))
 
+    # ensure we have asin_id for logging
+    cur.execute("SELECT id FROM asins WHERE asin=%s", (asin,))
+    row = cur.fetchone()
+    asin_id = row[0] if row else None
+
+    # write scan log (always record, auch wenn 0 Treffer)
+    try:
+        cur.execute(
+            "INSERT INTO scan_logs (asin_id, matches_count, note) VALUES (%s, %s, %s)",
+            (asin_id, matches_inserted, None)
+        )
+    except Exception as e:
+        logging.exception("Fehler beim Schreiben des Scan-Logs für %s: %s", asin, e)
+
     cur.close()
     db.close()
 

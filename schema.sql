@@ -36,3 +36,13 @@ CREATE TABLE IF NOT EXISTS results (
   FOREIGN KEY (pattern_id) REFERENCES patterns(id) ON DELETE CASCADE,
   INDEX idx_asin_created (asin_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Scan logs
+CREATE TABLE IF NOT EXISTS scan_logs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  asin_id INT NULL,
+  scanned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  matches_count INT NOT NULL DEFAULT 0,
+  note VARCHAR(255) DEFAULT NULL,
+  FOREIGN KEY (asin_id) REFERENCES asins(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
