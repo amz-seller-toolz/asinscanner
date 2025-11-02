@@ -3,7 +3,7 @@
 
 DB_HOST = "localhost"
 DB_PORT = 3306
-DB_USER = "your_db_user"
+DB_USER = "asinscannerer"
 DB_PASS = "your_db_password"
 DB_NAME = "asinscanner"
 
