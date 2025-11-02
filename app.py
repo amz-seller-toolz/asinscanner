@@ -1,5 +1,5 @@
 # app.py
-from flask import Flask, request, redirect, url_for, render_template, flash
+from flask import Flask, request, redirect, url_for, render_template, flash, jsonify
 import mysql.connector
 from mysql.connector import errorcode
 from datetime import datetime
@@ -16,16 +16,19 @@ import sys
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("asinscanner.app")
 
-# try import scanner module after app exists to avoid circular import issues
+# remove the early scanner import here (was causing circular import)
+# scanner will be imported after app is created
 scanner = None
+
+app = Flask(__name__)
+app.secret_key = config.SECRET_KEY
+
+# try import scanner module after app exists to avoid circular import issues
 try:
     import scanner as scanner
 except Exception:
     logger.exception("Failed to import scanner module; continuing with scanner=None")
     scanner = None
-
-app = Flask(__name__)
-app.secret_key = config.SECRET_KEY
 
 # log startup in Flask lifecycle
 @app.before_first_request
