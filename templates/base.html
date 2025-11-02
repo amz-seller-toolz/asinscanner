@@ -16,9 +16,13 @@
     </nav>
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
-        {% for cat, msg in messages %}
-          <div class="alert alert-{{ 'info' if cat=='info' else cat }}">{{ msg }}</div>
-        {% endfor %}
+        <div class="container mt-3">
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category if category else 'info' }}" role="alert">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
       {% endif %}
     {% endwith %}
     {% block content %}{% endblock %}

@@ -7,5 +7,8 @@
       <button class="btn btn-primary" type="submit">Scan ASIN jetzt</button>
     </div>
   </form>
+  <form method="post" action="{{ url_for('run_scanner') }}" style="display:inline">
+    <button type="submit" class="btn btn-primary">Scanner starten</button>
+  </form>
   <p>Produktion: richte cron ein, der <code>scanner.py</code> regelmäßig ausführt.</p>
 {% endblock %}

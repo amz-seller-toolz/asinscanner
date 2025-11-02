@@ -4,6 +4,11 @@ import mysql.connector
 from mysql.connector import errorcode
 from datetime import datetime
 import config
+import threading
+import subprocess
+import os
+import sys
+from flask import flash, redirect, url_for
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -137,6 +142,28 @@ def run_one():
     except Exception as e:
         flash(f"Fehler beim Scan: {e}", "danger")
     return redirect(url_for('index'))
+
+try:
+    import scanner
+except Exception:
+    scanner = None
+
+@app.route("/run_scanner", methods=["POST"])
+def run_scanner():
+    def target():
+        try:
+            if scanner and hasattr(scanner, "run"):
+                scanner.run()
+            else:
+                subprocess_args = [sys.executable, os.path.join(os.path.dirname(__file__), "scanner.py")]
+                subprocess.run(subprocess_args, check=False)
+        except Exception as e:
+            app.logger.exception("Scanner-Fehler: %s", e)
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    flash("Scanner gestartet — läuft im Hintergrund.", "info")
+    return redirect(url_for("index"))
 
 # --- Run ---
 if __name__ == '__main__':
