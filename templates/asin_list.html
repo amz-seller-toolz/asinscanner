@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>ASINs</h2>
+  <form method="post" class="mb-3">
+    <div class="row g-2">
+      <div class="col-md-3"><input name="asin" placeholder="ASIN" class="form-control" /></div>
+      <div class="col-md-6"><input name="note" placeholder="Notiz" class="form-control" /></div>
+      <div class="col-md-3"><button class="btn btn-success">Hinzufügen</button></div>
+    </div>
+  </form>
+
+  <table class="table table-sm">
+    <thead><tr><th>ASIN</th><th>Note</th><th>Active</th><th>Last checked</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for a in asins %}
+      <tr>
+        <td>{{ a.asin }}</td>
+        <td>{{ a.note }}</td>
+        <td>{{ 'yes' if a.active else 'no' }}</td>
+        <td>{{ a.last_checked }}</td>
+        <td>
+          <a href="{{ url_for('asin_toggle', asin_id=a.id) }}" class="btn btn-sm btn-secondary">Toggle</a>
+          <a href="{{ url_for('asin_delete', asin_id=a.id) }}" class="btn btn-sm btn-danger">Delete</a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>Patterns</h2>
+  <form method="post" class="mb-3">
+    <div class="row g-2">
+      <div class="col-md-3"><input name="name" placeholder="Name" class="form-control" /></div>
+      <div class="col-md-4"><input name="pattern" placeholder="RegExp" class="form-control" /></div>
+      <div class="col-md-2"><input name="flags" placeholder="Flags (int)" class="form-control" /></div>
+      <div class="col-md-3"><button class="btn btn-success">Hinzufügen</button></div>
+    </div>
+    <div class="mt-2">
+      <small>Benutze Python `re` Flags als Integer (z.B. re.IGNORECASE == 2). Für default (0) leer lassen.</small>
+    </div>
+  </form>
+
+  <table class="table table-sm">
+    <thead><tr><th>Name</th><th>Pattern</th><th>Flags</th><th>Active</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for p in patterns %}
+      <tr>
+        <td>{{ p.name }}</td>
+        <td><code>{{ p.pattern|e }}</code></td>
+        <td>{{ p.flags }}</td>
+        <td>{{ 'yes' if p.active else 'no' }}</td>
+        <td>
+          <a href="{{ url_for('pattern_toggle', pid=p.id) }}" class="btn btn-sm btn-secondary">Toggle</a>
+          <a href="{{ url_for('pattern_delete', pid=p.id) }}" class="btn btn-sm btn-danger">Delete</a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

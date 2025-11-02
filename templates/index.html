@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>Quick Actions</h2>
+  <form method="post" action="{{ url_for('run_one') }}" class="mb-3">
+    <div class="input-group">
+      <input name="asin" class="form-control" placeholder="ASIN zum manuellen Scannen (z.B. B08XXXX)" />
+      <button class="btn btn-primary" type="submit">Scan ASIN jetzt</button>
+    </div>
+  </form>
+  <p>Produktion: richte cron ein, der <code>scanner.py</code> regelmäßig ausführt.</p>
+{% endblock %}

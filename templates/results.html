@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>Results (letzte 200)</h2>
+  <table class="table table-sm">
+    <thead><tr><th>ASIN</th><th>Pattern</th><th>Matched</th><th>Source URL</th><th>Created</th></tr></thead>
+    <tbody>
+    {% for r in results %}
+      <tr>
+        <td>{{ r.asin }}</td>
+        <td>{{ r.pattern_name }}</td>
+        <td><code>{{ r.matched_text|e }}</code></td>
+        <td><a href="{{ r.source_url }}" target="_blank">{{ r.source_url }}</a></td>
+        <td>{{ r.created_at }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
