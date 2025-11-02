@@ -10,6 +10,12 @@ import os
 import sys
 from flask import flash, redirect, url_for
 
+# try import scanner module; fallback to subprocess execution if import fails
+try:
+    import scanner
+except Exception:
+    scanner = None
+
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
 
@@ -143,18 +149,16 @@ def run_one():
         flash(f"Fehler beim Scan: {e}", "danger")
     return redirect(url_for('index'))
 
-try:
-    import scanner
-except Exception:
-    scanner = None
-
 @app.route("/run_scanner", methods=["POST"])
 def run_scanner():
+    """Startet den Scanner im Hintergrund-Thread."""
     def target():
         try:
-            if scanner and hasattr(scanner, "run"):
-                scanner.run()
+            if scanner and hasattr(scanner, "run_full_scan"):
+                # call module function (no limit)
+                scanner.run_full_scan()
             else:
+                # fallback: starte scanner.py als separaten Prozess
                 subprocess_args = [sys.executable, os.path.join(os.path.dirname(__file__), "scanner.py")]
                 subprocess.run(subprocess_args, check=False)
         except Exception as e:

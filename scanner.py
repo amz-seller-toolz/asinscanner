@@ -164,7 +164,13 @@ def run_scan_for_asin(asin):
 
     cur.close()
     db.close()
-    logging.info("ASIN %s gescannt, %d Treffer.", asin, matches_inserted)
+
+    # Neuer Log: explizit "keine Treffer" protokollieren
+    if matches_inserted == 0:
+        logging.info("ASIN %s: keine Treffer gefunden.", asin)
+    else:
+        logging.info("ASIN %s gescannt, %d Treffer.", asin, matches_inserted)
+
     return matches_inserted
 
 def run_full_scan(limit=None):
