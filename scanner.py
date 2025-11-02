@@ -60,6 +60,22 @@ def extract_text_and_hrefs(html):
     texts = []
     hrefs = []
 
+    # Title + meta-description (neu: in Suche einschließen)
+    title_tag = soup.title.string.strip() if soup.title and soup.title.string else ""
+    meta_desc = ""
+    meta = soup.find("meta", attrs={"name": "description"})
+    if meta and meta.get("content"):
+        meta_desc = meta.get("content").strip()
+
+    if title_tag:
+        texts.append(title_tag)
+        if DEBUG_MODE:
+            logger.debug("Extracted title length=%d", len(title_tag))
+    if meta_desc:
+        texts.append(meta_desc)
+        if DEBUG_MODE:
+            logger.debug("Extracted meta-description length=%d", len(meta_desc))
+
     # product description id
     desc = soup.select_one("#productDescription")
     if desc:
@@ -97,7 +113,8 @@ def extract_text_and_hrefs(html):
         logger.debug("Full page text length=%d, hrefs_count=%d", len(full_text), len(hrefs))
 
     joined_text = "\n".join(texts)
-    return joined_text, hrefs
+    # return joined_text (for text searches), hrefs, raw title and raw html for optional html-searches
+    return joined_text, hrefs, title_tag, full_text
 
 def load_active_patterns(cursor):
     cursor.execute("SELECT id, name, pattern, flags FROM patterns WHERE active=1")
@@ -105,10 +122,31 @@ def load_active_patterns(cursor):
     compiled = []
     for e in entries:
         pid, name, pat, flags = e
-        # flags is stored as integer bitmask of python re flags
+        # flags may be stored as int bitmask or as string (e.g. "IGNORECASE|DOTALL")
         re_flags = 0
-        if flags:
-            re_flags = flags
+        try:
+            if flags is None:
+                re_flags = 0
+            elif isinstance(flags, int):
+                re_flags = flags
+            elif isinstance(flags, str):
+                # numeric string?
+                if flags.isdigit():
+                    re_flags = int(flags)
+                else:
+                    # parse named flags separated by | , or space
+                    for token in re.split(r"[|,\s]+", flags.strip()):
+                        if not token:
+                            continue
+                        val = getattr(re, token.strip(), None)
+                        if isinstance(val, int):
+                            re_flags |= val
+            else:
+                # fallback: try cast to int
+                re_flags = int(flags)
+        except Exception:
+            re_flags = 0
+
         try:
             compiled_re = re.compile(pat, re_flags)
             compiled.append((pid, name, compiled_re))
@@ -136,34 +174,48 @@ def run_scan_for_asin(asin):
             pass
         raise
 
-    text, hrefs = extract_text_and_hrefs(html)
+    # extended extractor returns joined_text, hrefs, title and full raw html
+    text, hrefs, title_tag, raw_html = extract_text_and_hrefs(html)
 
-    # load patterns
-    cur.execute("SELECT id, name, pattern, flags FROM patterns WHERE active=1")
-    patterns = cur.fetchall()
-    compiled_patterns = []
-    for pid, name, pat, flags in patterns:
-        try:
-            compiled_patterns.append((pid, name, re.compile(pat, flags or 0)))
-        except re.error:
-            logger.error("Ungültiges Pattern id %s name %s", pid, name)
+    # load patterns (use helper to compile)
+    compiled_patterns = load_active_patterns(cur)
     if DEBUG_MODE:
-        logger.debug("Loaded %d active patterns", len(compiled_patterns))
+        logger.debug("Loaded %d compiled patterns", len(compiled_patterns))
 
     matches_inserted = 0
 
-    # Search in text
+    # For each pattern, search in title, joined text, raw_html and hrefs
     for pid, name, cre in compiled_patterns:
-        pattern_matches = 0
+        total_pattern_matches = 0
+
+        # search title
+        title_matches = 0
+        if title_tag:
+            for m in cre.finditer(title_tag):
+                matched_text = m.group(0)
+                matched_group = m.group(1) if m.groups() else None
+                cur.execute("SELECT id FROM asins WHERE asin=%s", (asin,))
+                row = cur.fetchone()
+                if row:
+                    asin_id = row[0]
+                else:
+                    cur.execute("INSERT INTO asins (asin) VALUES (%s)", (asin,))
+                    asin_id = cur.lastrowid
+                cur.execute("""
+                    INSERT INTO results (asin_id, pattern_id, matched_text, matched_group, source_url)
+                    VALUES (%s,%s,%s,%s,%s)
+                """, (asin_id, pid, matched_text, matched_group, url))
+                matches_inserted += 1
+                title_matches += 1
+                total_pattern_matches += 1
+                if DEBUG_MODE:
+                    logger.debug("Title match ASIN %s pattern_id=%s matched_text=%s", asin, pid, matched_text[:200])
+
+        # search joined text (extracted sections)
+        text_matches = 0
         for m in cre.finditer(text):
-            matched_text = m.group(0) if m.groups() == () else m.group(0)
-            matched_group = None
-            if m.groups():
-                try:
-                    matched_group = m.group(1)
-                except Exception:
-                    matched_group = None
-            # insert result: find or create asin id
+            matched_text = m.group(0)
+            matched_group = m.group(1) if m.groups() else None
             cur.execute("SELECT id FROM asins WHERE asin=%s", (asin,))
             row = cur.fetchone()
             if row:
@@ -176,26 +228,39 @@ def run_scan_for_asin(asin):
                 VALUES (%s,%s,%s,%s,%s)
             """, (asin_id, pid, matched_text, matched_group, url))
             matches_inserted += 1
-            pattern_matches += 1
+            text_matches += 1
+            total_pattern_matches += 1
             if DEBUG_MODE:
-                logger.debug("Inserted match for ASIN %s pattern_id=%s matched_text=%s", asin, pid, matched_text[:200])
+                logger.debug("Text match ASIN %s pattern_id=%s matched_text=%s", asin, pid, matched_text[:200])
 
-        if DEBUG_MODE and pattern_matches == 0:
-            logger.debug("No text matches for ASIN %s pattern_id=%s", asin, pid)
+        # search raw HTML (covers cases where important text sits in attributes or markup)
+        html_matches = 0
+        for m in cre.finditer(raw_html):
+            matched_text = m.group(0)
+            matched_group = m.group(1) if m.groups() else None
+            cur.execute("SELECT id FROM asins WHERE asin=%s", (asin,))
+            row = cur.fetchone()
+            if row:
+                asin_id = row[0]
+            else:
+                cur.execute("INSERT INTO asins (asin) VALUES (%s)", (asin,))
+                asin_id = cur.lastrowid
+            cur.execute("""
+                INSERT INTO results (asin_id, pattern_id, matched_text, matched_group, source_url)
+                VALUES (%s,%s,%s,%s,%s)
+            """, (asin_id, pid, matched_text, matched_group, url))
+            matches_inserted += 1
+            html_matches += 1
+            total_pattern_matches += 1
+            if DEBUG_MODE:
+                logger.debug("HTML match ASIN %s pattern_id=%s matched_text=%s", asin, pid, matched_text[:200])
 
-    # Also check hrefs (each href string)
-    for href in hrefs:
-        for pid, name, cre in compiled_patterns:
-            href_matches = 0
+        # hrefs
+        href_matches = 0
+        for href in hrefs:
             for m in cre.finditer(href):
                 matched_text = m.group(0)
-                matched_group = None
-                if m.groups():
-                    try:
-                        matched_group = m.group(1)
-                    except Exception:
-                        matched_group = None
-                # ensure asin id
+                matched_group = m.group(1) if m.groups() else None
                 cur.execute("SELECT id FROM asins WHERE asin=%s", (asin,))
                 row = cur.fetchone()
                 if row:
@@ -209,10 +274,16 @@ def run_scan_for_asin(asin):
                 """, (asin_id, pid, matched_text, matched_group, url))
                 matches_inserted += 1
                 href_matches += 1
+                total_pattern_matches += 1
                 if DEBUG_MODE:
-                    logger.debug("Inserted href match for ASIN %s pattern_id=%s matched_text=%s", asin, pid, matched_text[:200])
-            if DEBUG_MODE and href_matches == 0:
-                logger.debug("No href matches for ASIN %s pattern_id=%s on href=%s", asin, pid, href[:200])
+                    logger.debug("Href match ASIN %s pattern_id=%s matched_text=%s href=%s", asin, pid, matched_text[:200], href[:200])
+
+        if DEBUG_MODE:
+            logger.debug("Pattern id=%s name=%s matches: title=%d text=%d html=%d hrefs=%d total=%d",
+                         pid, name, title_matches, text_matches, html_matches, href_matches, total_pattern_matches)
+
+        if total_pattern_matches == 0 and DEBUG_MODE:
+            logger.debug("No matches for ASIN %s pattern_id=%s across all sources", asin, pid)
 
     # update last_checked timestamp
     cur.execute("UPDATE asins SET last_checked = NOW() WHERE asin = %s", (asin,))
